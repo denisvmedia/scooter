@@ -10,30 +10,14 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/checkout@v5
-        with:
-          repository: stokaro/ptah
-          ref: 3b8f6a8e83d0537c551d09ae93e9e164d9b04174
-          path: .proof/ptah
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: .proof/ptah/go.mod
-          cache-dependency-path: .proof/ptah/go.sum
-      - name: Build the exact Ptah formatter fix (PR 4007)
-        working-directory: .proof/ptah
-        env:
-          CGO_ENABLED: '0'
-        run: |
-          mkdir -p "$RUNNER_TEMP/ptah-fixed"
-          go build -o "$RUNNER_TEMP/ptah-fixed/atlas" ./cmd/ptah-compat
       - uses: nixbuild/nix-quick-install-action@v30
       - uses: cachix/cachix-action@v15
         with:
           name: scooter
-      - name: Validate with the fixed binary in Scooter's Nix shell
+      - name: Validate Ptah v0.12.0 in Scooter's Nix shell
         run: |
           nix develop --command bash -euc '
-            export PATH="$RUNNER_TEMP/ptah-fixed:$PATH"
+            atlas version
             just db-validate
             just db-migrate-check
             just lint
@@ -41,5 +25,10 @@ jobs:
             just test-unit
             git diff --exit-code -- lib/sql/*/migrations
           '
+      - name: Verify Atlas handover, baseline adoption, and notifications
+        run: |
+          reference=$(nix build --impure --no-link --print-out-paths --expr 'let flake = builtins.getFlake (toString ./.); in flake.inputs.nixpkgs.legacyPackages.${builtins.currentSystem}.atlas')
+          export ATLAS_REFERENCE="$reference/bin/atlas"
+          nix develop --command bash .proof/handover.sh
       - name: Build the release package and migration image
         run: nix develop --command nix build .#ptah-compat .#db-migrator-image --no-link
